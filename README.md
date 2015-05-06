@@ -27,7 +27,7 @@ This strategy provides behaviour similar to that of
 
 ```ruby
 class PlaceOrder < Que::Job
-  extend Que::Failure::NoRetry
+  include Que::Failure::NoRetry
 
   def run
     # Some error occurs here.
@@ -44,7 +44,7 @@ This strategy will retry a job at the provided `retry_intervals` assuming that t
 
 ```ruby
 class ProcessWebhook < Que::Job
-  extend Que::Failure::VariableRetry
+  include Que::Failure::VariableRetry
 
   retryable_exceptions [Timeout::Error]
   retry_intervals [30.seconds, 1.minute, 2.minutes]
@@ -66,7 +66,7 @@ Once all retries have been exhausted, the job will be failed and the `on_unhandl
 
 ```ruby
 class ProcessWebhook < Que::Job
-  extend Que::Failure::VariableRetry
+  include Que::Failure::VariableRetry
 
   retryable_exceptions [Timeout::Error]
   retry_intervals [1.hour, 1.day, 1.week]
