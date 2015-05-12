@@ -35,7 +35,7 @@ describe "variable retry strategy" do
         class JobB < Que::Job
           include Que::Failure::VariableRetry
 
-          retryable_exceptions [Exception]
+          retryable_exceptions [RuntimeError]
 
           def run
             raise StandardError.new('I broke.')
@@ -54,13 +54,15 @@ describe "variable retry strategy" do
 
     describe "with no retry intervals have been set" do
       it "fails the job" do
+        class MyError < StandardError; end
+
         class JobC < Que::Job
           include Que::Failure::VariableRetry
 
           retryable_exceptions [StandardError]
 
           def run
-            raise StandardError.new('I broke.')
+            raise MyError.new('I broke.')
           end
         end
 
