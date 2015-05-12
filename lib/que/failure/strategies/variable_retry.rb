@@ -25,32 +25,38 @@ module Que
         end
 
         def handle_job_failure(error, job)
-          begin
-            count    = job[:error_count].to_i + 1
-            message  = "#{error.message}\n#{error.backtrace.join("\n")}"
+          count    = job[:error_count].to_i + 1
+          message  = "#{error.message}\n#{error.backtrace.join("\n")}"
 
-            if @retryable_exceptions && @retryable_exceptions.include?(error.class)
-              delay = @retry_intervals && @retry_intervals[count - 1]
+          if retryable_exception?(error)
+            delay = @retry_intervals && @retry_intervals[count - 1]
 
-              if delay
-                Que.execute :set_error, [count, delay, message] + job.values_at(:queue, :priority, :run_at, :job_id)
-              else
-                @after_final_retry_callback.call(error, job) if @after_final_retry_callback
-
-                if @destroy_after_final_retry
-                  Que.execute :destroy_job, job.values_at(:queue, :priority, :run_at, :job_id)
-                else
-                  Que.execute :fail_job, [count, message] + job.values_at(:queue, :priority, :run_at, :job_id)
-                  Que::Failure.unhandled_failure(error, job)
-                end
-              end
+            if delay
+              Que.execute :set_error, [count, delay, message] + job.values_at(:queue, :priority, :run_at, :job_id)
             else
-              Que.execute :fail_job, [count, message] + job.values_at(:queue, :priority, :run_at, :job_id)
-              Que::Failure.unhandled_failure(error, job)
+              @after_final_retry_callback.call(error, job) if @after_final_retry_callback
+
+              if @destroy_after_final_retry
+                Que.execute :destroy_job, job.values_at(:queue, :priority, :run_at, :job_id)
+              else
+                Que.execute :fail_job, [count, message] + job.values_at(:queue, :priority, :run_at, :job_id)
+                Que::Failure.unhandled_failure(error, job)
+              end
             end
+          else
+            Que.execute :fail_job, [count, message] + job.values_at(:queue, :priority, :run_at, :job_id)
+            Que::Failure.unhandled_failure(error, job)
           end
         rescue => error
           Que::Failure.unhandled_failure(error, job)
+        end
+
+        private
+
+        def retryable_exception?(error)
+          return false unless @retryable_exceptions
+
+          @retryable_exceptions.any? { |exception_class| error.is_a?(exception_class) }
         end
       end
     end
