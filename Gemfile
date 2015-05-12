@@ -3,7 +3,7 @@ source 'https://rubygems.org'
 group :test, :development do
   gem 'pg'
   gem 'sequel'
-  gem 'que', path: '../que'
+  gem 'que', git: 'git@github.com:gocardless/que.git'
 end
 
 group :test do
