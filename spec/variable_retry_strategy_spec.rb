@@ -187,6 +187,10 @@ describe "variable retry strategy" do
       JobG.enqueue :priority => 89
       Que::Job.work
       job = DB[:que_jobs].first
+      job[:error_count].should == 1
+      job[:retryable].should == false
+      t = (Time.now ).to_f.round(6)
+      job[:failed_at].to_f.round(6).should be_within(1.5).of(t + 1.0)
       $catastrophy.should == true
     end
   end
