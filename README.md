@@ -93,6 +93,16 @@ Que::Failure.on_unhandled_failure do |error, job|
 end
 ```
 
+### Setting the retryable failure callback
+
+This callback will be invoked whenever a job fails but will be retried.
+
+```ruby
+Que::Failure.on_retryable_failure do |error, job|
+  warn("Error running job - will be retried: #{error.full_message}")
+end
+```
+
 ### Additional queries
 
 For convenience there are some canned statements that Que provides, for example:
