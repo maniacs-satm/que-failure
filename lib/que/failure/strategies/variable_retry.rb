@@ -35,12 +35,15 @@ module Que
               Que.execute :set_error, [count, delay, message] + job.values_at(:queue, :priority, :run_at, :job_id)
               Que::Failure.retryable_failure(error, job)
             else
-              @after_final_retry_callback.call(error, job) if @after_final_retry_callback
-
               if @destroy_after_final_retry
                 Que.execute :destroy_job, job.values_at(:queue, :priority, :run_at, :job_id)
               else
                 Que.execute :fail_job, [count, message] + job.values_at(:queue, :priority, :run_at, :job_id)
+              end
+
+              @after_final_retry_callback.call(error, job) if @after_final_retry_callback
+
+              unless @destroy_after_final_retry
                 Que::Failure.unhandled_failure(error, job)
               end
             end
