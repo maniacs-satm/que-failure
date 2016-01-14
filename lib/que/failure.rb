@@ -12,10 +12,21 @@ module Que
         @unhandled_failure_callback = callback
       end
 
+      def on_retryable_failure(&callback)
+        @retryable_failure_callback = callback
+      end
+
       def unhandled_failure(error, job)
         return unless @unhandled_failure_callback
 
         @unhandled_failure_callback.call(error, job)
+      rescue
+      end
+
+      def retryable_failure(error, job)
+        return unless @retryable_failure_callback
+
+        @retryable_failure_callback.call(error, job)
       rescue
       end
     end

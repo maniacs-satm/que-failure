@@ -77,7 +77,7 @@ describe "variable retry strategy" do
     end
 
     describe "with retry intervals set" do
-      it "errors the job" do
+      it "errors the job and calls the retryable failure callback" do
         class JobD < Que::Job
           include Que::Failure::VariableRetry
 
@@ -89,12 +89,17 @@ describe "variable retry strategy" do
           end
         end
 
+        Que::Failure.on_retryable_failure do |error, job|
+          $hiccup = true
+        end
+
         JobD.enqueue :priority => 89
         Que::Job.work
         job = DB[:que_jobs].first
         job[:error_count].should == 1
         job[:retryable].should == true
         job[:failed_at].should == nil
+        $hiccup.should == true
       end
     end
 

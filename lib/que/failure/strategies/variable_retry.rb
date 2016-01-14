@@ -33,6 +33,7 @@ module Que
 
             if delay
               Que.execute :set_error, [count, delay, message] + job.values_at(:queue, :priority, :run_at, :job_id)
+              Que::Failure.retryable_failure(error, job)
             else
               @after_final_retry_callback.call(error, job) if @after_final_retry_callback
 
