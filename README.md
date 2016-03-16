@@ -39,7 +39,7 @@ end
 
 This strategy will retry a job at the provided `retry_intervals` assuming that the
  failure was caused by one of the `retryable_exceptions`.  If any other kind of exception
- is raised the job will be left in a failed state and the `on_unhandled_error` callback
+ is raised the job will be left in a failed state and the `on_unhandled_failure` callback
  will be invoked.
 
 ```ruby
@@ -59,10 +59,10 @@ There may be scenarios where it is useful to carry out an action after the retri
  been exhausted.  Custom behaviour can be achieved through the `after_final_retry`
  callback, which will be passed the error encountered and the job.
 
-Once all retries have been exhausted, the job will be failed and the `on_unhandled_error`
- callback will be invoked.  It is possible to bypass this behaviour and simply destroy
- the job with `destroy_after_final_retry!`, which will do nothing other than destroy the
- job.
+Once all retries have been exhausted, the job will be failed and the
+ `on_unhandled_failure` callback will be invoked.  It is possible to bypass this
+ behaviour and simply destroy the job with `destroy_after_final_retry!`, which will do
+ nothing other than destroy the job.
 
 ```ruby
 class ProcessWebhook < Que::Job

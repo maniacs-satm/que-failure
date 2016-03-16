@@ -1,194 +1,167 @@
 require 'spec_helper'
+require 'shared_behaviour'
 
 describe "variable retry strategy" do
-  describe "when there are no retryable exceptions" do
-    it "fails the job and calls the on_unhandled_failure callback" do
+  before do
+    Que::Failure.on_unhandled_failure do |error, job|
+      $global_failure = true
+    end
+  end
 
-      class JobA < Que::Job
+  before do
+    $global_failure = nil
+    $final_retry_callback = nil
+  end
+
+  describe "when there are no retryable exceptions" do
+    class JobA < Que::Job
+      include Que::Failure::VariableRetry
+
+      def run
+        raise StandardError.new('I broke.')
+      end
+    end
+
+    it_behaves_like "marks the job as failed and non-retryable", JobA
+    it_behaves_like "calls the global failure handler", JobA
+  end
+
+  describe "when there are retryable exceptions" do
+    describe "when no retry intervals have been set" do
+      class MyError < StandardError; end
+
+      class JobB < Que::Job
         include Que::Failure::VariableRetry
+
+        retryable_exceptions [StandardError]
+
+        def run
+          raise MyError.new('I broke.')
+        end
+      end
+
+      it_behaves_like "marks the job as failed and non-retryable", JobB
+      it_behaves_like "calls the global failure handler", JobB
+    end
+
+    describe "when an un-retryable exception is raised" do
+      class JobC < Que::Job
+        include Que::Failure::VariableRetry
+
+        retryable_exceptions [RuntimeError]
 
         def run
           raise StandardError.new('I broke.')
         end
       end
 
-      Que::Failure.on_unhandled_failure do |error, job|
-        $job = job
-        $error = error
-      end
-
-      JobA.enqueue :priority => 89
-      Que::Job.work
-      job = DB[:que_jobs].first
-      job[:error_count].should == 1
-      job[:retryable].should == false
-      t = (Time.now ).to_f.round(6)
-      job[:failed_at].to_f.round(6).should be_within(1.5).of(t + 1.0)
-      $error.class.should == StandardError
-      $job[:job_id].should == job[:job_id]
-    end
-  end
-
-  describe "when there are retryable exceptions" do
-    describe "when an un-retryable exception is raised" do
-      it "will fail a job" do
-        class JobB < Que::Job
-          include Que::Failure::VariableRetry
-
-          retryable_exceptions [RuntimeError]
-
-          def run
-            raise StandardError.new('I broke.')
-          end
-        end
-
-        JobB.enqueue :priority => 89
-        Que::Job.work
-        job = DB[:que_jobs].first
-        job[:error_count].should == 1
-        job[:retryable].should == false
-        t = (Time.now ).to_f.round(6)
-        job[:failed_at].to_f.round(6).should be_within(1.5).of(t + 1.0)
-      end
-    end
-
-    describe "with no retry intervals have been set" do
-      it "fails the job" do
-        class MyError < StandardError; end
-
-        class JobC < Que::Job
-          include Que::Failure::VariableRetry
-
-          retryable_exceptions [StandardError]
-
-          def run
-            raise MyError.new('I broke.')
-          end
-        end
-
-        JobC.enqueue :priority => 89
-        Que::Job.work
-        job = DB[:que_jobs].first
-        job[:error_count].should == 1
-        job[:retryable].should == false
-        t = (Time.now ).to_f.round(6)
-        job[:failed_at].to_f.round(6).should be_within(1.5).of(t + 1.0)
-      end
+      it_behaves_like "marks the job as failed and non-retryable", JobC
+      it_behaves_like "calls the global failure handler", JobC
     end
 
     describe "with pre-determined retry intervals set" do
-      it "errors the job and calls the retryable failure callback" do
-        class JobD < Que::Job
-          include Que::Failure::VariableRetry
+      class JobD < Que::Job
+        include Que::Failure::VariableRetry
 
-          retryable_exceptions [StandardError]
-          retry_intervals [1000]
+        retryable_exceptions [StandardError]
+        retry_intervals [1000]
 
-          def run
-            raise StandardError.new('I broke.')
-          end
+        def run
+          raise StandardError.new('I broke.')
         end
+      end
 
+      before do
         Que::Failure.on_retryable_failure do |error, job|
           $hiccup = true
         end
+      end
 
+      it_behaves_like "marks the job as retryable", JobD
+
+      it "calls the retryable_failure callback" do
         JobD.enqueue :priority => 89
         Que::Job.work
-        job = DB[:que_jobs].first
-        job[:error_count].should == 1
-        job[:retryable].should == true
-        job[:failed_at].should == nil
         $hiccup.should == true
       end
     end
 
     describe "with callable retry intervals set" do
-      it "errors the job and calls the retryable failure callback" do
-        class JobD2 < Que::Job
+      class JobD2 < Que::Job
+        include Que::Failure::VariableRetry
+
+        retryable_exceptions [StandardError]
+        retry_intervals [-> { (30..90).to_a.sample }]
+
+        def run
+          raise StandardError.new('I broke.')
+        end
+      end
+
+      before do
+        Que::Failure.on_retryable_failure do |error, job|
+          $hiccup = true
+        end
+      end
+
+      it_behaves_like "marks the job as retryable", JobD2
+    end
+
+    describe "with all retry intervals exhausted" do
+      describe "when the job is not marked for deletion after final retry" do
+        class JobE < Que::Job
           include Que::Failure::VariableRetry
 
           retryable_exceptions [StandardError]
-          retry_intervals [-> { (30..90).to_a.sample }]
+          retry_intervals []
+
+          after_final_retry do |error, job|
+            $final_retry_callback = true
+          end
 
           def run
             raise StandardError.new('I broke.')
           end
         end
 
-        Que::Failure.on_retryable_failure do |error, job|
-          $hiccup = true
-        end
+        it_behaves_like "marks the job as failed and non-retryable", JobE
+        it_behaves_like "calls the global failure handler", JobE
 
-        JobD.enqueue :priority => 89
-        Que::Job.work
-        job = DB[:que_jobs].first
-        job[:error_count].should == 1
-        job[:retryable].should == true
-        job[:failed_at].should == nil
-        $hiccup.should == true
-      end
-    end
-
-    describe "with all retry intervals exhausted" do
-      describe "when the job is not marked for deletion after final retry" do
-        it "fails the job, calls the after_final_retry and global failure handler" do
-
-          class JobE < Que::Job
-            include Que::Failure::VariableRetry
-
-            retryable_exceptions [StandardError]
-            retry_intervals []
-
-            after_final_retry do |error, job|
-              $final_retry_callback = true
-            end
-
-            def run
-              raise StandardError.new('I broke.')
-            end
-          end
-
-          Que::Failure.on_unhandled_failure do |error, job|
-            $catastrophy = true
-          end
-
+        it "calls the after_final_retry callback" do
           JobE.enqueue :priority => 89
           Que::Job.work
-          job = DB[:que_jobs].first
-          job[:error_count].should == 1
-          job[:retryable].should == false
-          t = (Time.now ).to_f.round(6)
-          job[:failed_at].to_f.round(6).should be_within(1.5).of(t + 1.0)
           $final_retry_callback.should == true
-          $catastrophy.should == true
         end
       end
 
       describe "when the job is marked for deletion after final retry" do
-        it "destroys the job and calls after final retry handler" do
+        class JobF < Que::Job
+          include Que::Failure::VariableRetry
 
-          class JobF < Que::Job
-            include Que::Failure::VariableRetry
+          retryable_exceptions [StandardError]
+          retry_intervals []
 
-            retryable_exceptions [StandardError]
-            retry_intervals []
+          destroy_after_final_retry!
 
-            destroy_after_final_retry!
-
-            after_final_retry do |_, _|
-              $final_retry_callback = true
-            end
-
-            def run
-              raise StandardError.new('I broke.')
-            end
+          after_final_retry do |_, _|
+            $final_retry_callback = true
           end
 
+          def run
+            raise StandardError.new('I broke.')
+          end
+        end
+
+        it "destroys the job" do
           JobF.enqueue :priority => 89
           Que::Job.work
           job = DB[:que_jobs].first
-          job.should.should == nil
+          job.should == nil
+        end
+
+        it "calls the after_final_retry handler" do
+          JobF.enqueue :priority => 89
+          Que::Job.work
           $final_retry_callback.should == true
         end
       end
@@ -196,34 +169,22 @@ describe "variable retry strategy" do
   end
 
   describe "when an exception is raised in the after_final_retry callback" do
-    it "will call the on_unhandled_failure callback" do
-      class JobG < Que::Job
-        include Que::Failure::VariableRetry
+    class JobG < Que::Job
+      include Que::Failure::VariableRetry
 
-        retryable_exceptions [StandardError]
-        retry_intervals []
+      retryable_exceptions [StandardError]
+      retry_intervals []
 
-        after_final_retry do |_, _|
-          raise StandardError.new('Full breakage')
-        end
-
-        def run
-          raise StandardError.new('I broke.')
-        end
+      after_final_retry do |_, _|
+        raise StandardError.new('Full breakage')
       end
 
-      Que::Failure.on_unhandled_failure do |error, job|
-        $catastrophy = true
+      def run
+        raise StandardError.new('I broke.')
       end
-
-      JobG.enqueue :priority => 89
-      Que::Job.work
-      job = DB[:que_jobs].first
-      job[:error_count].should == 1
-      job[:retryable].should == false
-      t = (Time.now ).to_f.round(6)
-      job[:failed_at].to_f.round(6).should be_within(1.5).of(t + 1.0)
-      $catastrophy.should == true
     end
+
+    it_behaves_like "marks the job as failed and non-retryable", JobG
+    it_behaves_like "calls the global failure handler", JobG
   end
 end
