@@ -1,7 +1,16 @@
 require 'spec_helper'
+require 'shared_behaviour'
 
 describe "no retry strategy" do
-  it "fails the job" do
+  before do
+    Que::Failure.on_unhandled_failure do |error, job|
+      $global_failure = true
+    end
+  end
+
+  before { $global_failure = nil }
+
+  describe "when the job fails" do
     class NoRetryJob < Que::Job
       include Que::Failure::NoRetry
 
@@ -10,67 +19,34 @@ describe "no retry strategy" do
       end
     end
 
-    NoRetryJob.enqueue
-    job = DB[:que_jobs].first
-    job[:retryable].should == true
-    Que::Job.work
-    job = DB[:que_jobs].first
-    job[:error_count].should == 1
-    job[:retryable].should == false
+    it_behaves_like "marks the job as failed and non-retryable", NoRetryJob
+    it_behaves_like "calls the global failure handler", NoRetryJob
   end
 
-  it "marks jobs as unretryable in the event of an apocalyspe" do
+  context "when the job raises an exception that doesn't inherit from StandardError" do
     class ApocalypticException < Exception; end
 
     class CatastrophicJob < Que::Job
       include Que::Failure::NoRetry
 
       def run
-        raise ApocalypticException.new('brrrraaains')
+        raise ApocalypticException.new("I don't inherit from StandardError")
       end
     end
 
-    CatastrophicJob.enqueue
-    job = DB[:que_jobs].first
-    job[:retryable].should == true
-
-    begin
-      Que::Job.work
-    rescue ApocalypticException
-    end
-
-    job = DB[:que_jobs].first
-    job[:error_count].should == 0
-    job[:retryable].should == false
-  end
-
-  describe "when a catastrophic failure arises" do
-    it "will call the on_unhandled_failure callback" do
-      class CatastrophicJob < Que::Job
-        include Que::Failure::NoRetry
-
-        def run
-          raise Error.new('brrrraaains')
-        end
-      end
-
-      Que::Failure.on_unhandled_failure do |_, _|
-        $catastrophy = true
-      end
-
+    it "is still marked as non-retryable in the database" do
       CatastrophicJob.enqueue
       job = DB[:que_jobs].first
       job[:retryable].should == true
 
       begin
         Que::Job.work
-      rescue StandardError
+      rescue ApocalypticException
       end
 
       job = DB[:que_jobs].first
-      job[:error_count].should == 1
+      job[:error_count].should == 0
       job[:retryable].should == false
-      $catastrophy.should == true
     end
   end
 end

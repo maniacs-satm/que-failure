@@ -30,7 +30,7 @@ module Que
 
           if retryable_exception?(error)
             delay = @retry_intervals && @retry_intervals[count - 1]
-            delay = delay.call if delay.respond_to(:call)
+            delay = delay.call if delay.respond_to?(:call)
 
             if delay
               Que.execute :set_error, [count, delay, message] + job.values_at(:queue, :priority, :run_at, :job_id)
