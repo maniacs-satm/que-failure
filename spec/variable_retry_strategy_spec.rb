@@ -76,13 +76,40 @@ describe "variable retry strategy" do
       end
     end
 
-    describe "with retry intervals set" do
+    describe "with pre-determined retry intervals set" do
       it "errors the job and calls the retryable failure callback" do
         class JobD < Que::Job
           include Que::Failure::VariableRetry
 
           retryable_exceptions [StandardError]
           retry_intervals [1000]
+
+          def run
+            raise StandardError.new('I broke.')
+          end
+        end
+
+        Que::Failure.on_retryable_failure do |error, job|
+          $hiccup = true
+        end
+
+        JobD.enqueue :priority => 89
+        Que::Job.work
+        job = DB[:que_jobs].first
+        job[:error_count].should == 1
+        job[:retryable].should == true
+        job[:failed_at].should == nil
+        $hiccup.should == true
+      end
+    end
+
+    describe "with callable retry intervals set" do
+      it "errors the job and calls the retryable failure callback" do
+        class JobD2 < Que::Job
+          include Que::Failure::VariableRetry
+
+          retryable_exceptions [StandardError]
+          retry_intervals [-> { (30..90).to_a.sample }]
 
           def run
             raise StandardError.new('I broke.')
